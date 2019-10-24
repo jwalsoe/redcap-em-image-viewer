@@ -17,8 +17,8 @@ class ImageViewer extends \ExternalModules\AbstractExternalModule
 {
 
     private $tag = "@IMAGEVIEW";
-    private $valid_image_suffixes = array('jpeg','jpg','jpe','gif','png','tif','bmp');
-    private $valid_pdf_suffixes = array('pdf');
+    private $valid_image_suffixes = array('jpeg','JPEG','jpg','JPG','jpe','JPE','gif','GIF','png','PNG','tif','TIF','bmp','BMP');
+    private $valid_pdf_suffixes = array('pdf','PDF');
 
 
     function __construct()
@@ -33,13 +33,13 @@ class ImageViewer extends \ExternalModules\AbstractExternalModule
 
     // Capture normal data-entry
     function hook_data_entry_form_top($project_id, $record = NULL, $instrument, $event_id, $group_id = NULL, $repeat_instance = 1) {
-        self::renderPreview($instrument,$record, $event_id, $repeat_instance);
+        self::renderPreview($instrument,$record, $event_id, $repeat_instance, $project_id);
     }
 
 
     // Capture surveys
     function hook_survey_page_top($project_id, $record = NULL, $instrument, $event_id, $group_id = NULL, $survey_hash, $response_id = NULL, $repeat_instance = 1) {
-        self::renderPreview($instrument, $record, $event_id, $repeat_instance);
+        self::renderPreview($instrument, $record, $event_id, $repeat_instance, $project_id);
     }
 
 
@@ -228,16 +228,51 @@ class ImageViewer extends \ExternalModules\AbstractExternalModule
         }
     }
 
+    /**
+     * This function retrieves ducument id from database
+     * @param $record
+     * @param $event_id
+     * @param $field
+     * @param $repeat_instance
+     * @param $project_id
+     */
+    function getDocId($record, $event_id, $field, $repeat_instance, $project_id) {
+        $sql= '';
+        if ($repeat_instance == '1' || $repeat_instance == ''){
+            //first instance does not have instance = 1, instead NULL value is stored
+            $sql = "select value from redcap_data where project_id = '" . $project_id . "' and event_id = ". $event_id  ." ";
+            $sql .= "and record = ". $record  ." and field_name = '". $field  ."' and instance is NULL";
+        }
+        else {
+            $sql = "select value from redcap_data where project_id = '" . $project_id . "' and event_id = ". $event_id  ." ";
+            $sql .= "and record = ". $record  ." and field_name = '". $field  ."' and instance = ". $repeat_instance  .""; 
+        }
+        Util::log("Using SQL", $sql);
 
+        $result = db_query($sql);
+        Util::log("SQL query result", $result);
+
+        if ($result) {
+            $res = db_fetch_array($result);
+            return $res[0];
+        }
+        else{
+            return 0;
+        }
+        
+    }
 
     /**
-     * This function passess along details about existing uploaded files so they can be previewed immediately after the page is rendered
+     * This function passess along details about existing uploaded files so they can be previewed immediately after the
+     * page is rendered
      * @param $instrument
      * @param $record
      * @param $event_id
+	 * @throws \Exception
      * @param $repeat_instance
+     * @param $project_id
      */
-    function renderPreview($instrument, $record, $event_id, $repeat_instance) {
+    function renderPreview($instrument, $record, $event_id, $repeat_instance, $project_id) {
         $active_field_params = $this->getFieldParams();
 
         // Filter the configured fields to only those on the current instrument
@@ -252,13 +287,21 @@ class ImageViewer extends \ExternalModules\AbstractExternalModule
         }
 
         // We need to know the filetype to validate when the file has been previously uploaded...
-        $q = REDCap::getData('json',$record, array_keys($fields), $event_id);
-        $results = json_decode($q, true);
-        $result = $results[$repeat_instance - 1];
-       
+        //$q = REDCap::getData('json',$record, array_keys($fields), $event_id);
+        //$results = json_decode($q, true);
+        //$result = $results[0];
+		global $Proj;
         $preview_fields = array();
         foreach ($fields as $field => $params) {
-            $doc_id = $result[$field];
+            $field_meta = $Proj->metadata[$field];
+            $field_type = $field_meta['element_type'];
+			if ($field_type == 'descriptive' && !empty($field_meta['edoc_id'])) {
+                $doc_id = $field_meta['edoc_id'];
+            } elseif ($field_type == 'file') {
+                $doc_id = self::getDocId($record, $event_id, $field, $repeat_instance, $project_id);
+            } else {
+                // invalid field type!
+            }
             
             if ($doc_id > 0) {
                 list($mime_type, $doc_name) = Files::getEdocContentsAttributes($doc_id);
@@ -266,7 +309,7 @@ class ImageViewer extends \ExternalModules\AbstractExternalModule
                     'suffix' => pathinfo($doc_name, PATHINFO_EXTENSION),
                     'params' => $params,
                     'mime_type' => $mime_type,
-                    'doc_name' => $doc_name,
+                    'doc_name' => $doc_name
                 );
             }
         }

@@ -1,4 +1,7 @@
 # redcap-em-image-viewer
+This is a fork of Andys work. Supports repeating instruments and works with attachement names with suffixes
+in all CAPS.
+
 This external module permits you to preview the contents of a file_upload field.  It supports images and PDFs.
  
 It should probably be called 'upload preview' but that's not for today...
